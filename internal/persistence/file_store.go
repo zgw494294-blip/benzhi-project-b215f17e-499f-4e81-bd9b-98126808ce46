@@ -58,10 +58,13 @@ func (f *FileStore) load() error {
 func (f *FileStore) Create(t *domain.Task) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if err := f.memory.Create(t); err != nil {
-		return err
+	// Persist first; only commit to the in-memory cache on success so a snapshot
+	// failure cannot leave a task visible to readers that disappears after restart.
+	snapshotErr := WriteSnapshot(f.dir, t)
+	if snapshotErr != nil {
+		return snapshotErr
 	}
-	return WriteSnapshot(f.dir, t)
+	return f.memory.Create(t)
 }
 func (f *FileStore) Get(id string) (*domain.Task, error) {
 	f.mu.Lock()
@@ -76,13 +79,28 @@ func (f *FileStore) FindByIdempotencyKey(key string) (*domain.Task, error) {
 func (f *FileStore) Save(t *domain.Task, e domain.Event) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if err := f.memory.Save(t, e); err != nil {
+	// Validate against the current in-memory task version without advancing any
+	// in-memory state. Persistence steps run first; the in-memory task version,
+	// event sequence and event index only advance once every durable step has
+	// succeeded.
+	cur, err := f.memory.Get(t.ID)
+	if err != nil {
 		return err
 	}
-	if err := f.ledger.Append(e); err != nil {
+	if t.Version < cur.Version {
+		return domain.ErrConflict
+	}
+	if err := f.ledger.Append(&e); err != nil {
 		return err
 	}
-	return WriteSnapshot(f.dir, t)
+	if err := WriteSnapshot(f.dir, t); err != nil {
+		// The ledger line was durable but the snapshot was not, which would leave
+		// a durable event with no corresponding in-memory state that survives a
+		// restart. Roll the ledger back so the failed save leaves no trace.
+		_ = f.ledger.Truncate()
+		return err
+	}
+	return f.memory.CommitSave(t, e)
 }
 func (f *FileStore) Events(id string) ([]domain.Event, error) {
 	f.mu.Lock()

@@ -70,14 +70,9 @@ func (s *MemoryStore) FindByIdempotencyKey(key string) (*domain.Task, error) {
 func (s *MemoryStore) Save(t *domain.Task, e domain.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cur, ok := s.tasks[t.ID]
-	if !ok {
-		return domain.ErrNotFound
+	if err := s.precheckSave(t.ID, t.Version); err != nil {
+		return err
 	}
-	if t.Version < cur.Version {
-		return domain.ErrConflict
-	}
-	s.tasks[t.ID] = cloneTask(t)
 	s.seq++
 	e.Sequence = s.seq
 	e.SchemaVersion = 1
@@ -85,6 +80,35 @@ func (s *MemoryStore) Save(t *domain.Task, e domain.Event) error {
 	sum := sha256.Sum256(raw)
 	e.Digest = hex.EncodeToString(sum[:])
 	s.events[t.ID] = append(s.events[t.ID], e)
+	s.tasks[t.ID] = cloneTask(t)
+	return nil
+}
+// precheckSave reports the conflict a Save would fail with, without committing.
+func (s *MemoryStore) precheckSave(taskID string, version int) error {
+	cur, ok := s.tasks[taskID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if version < cur.Version {
+		return domain.ErrConflict
+	}
+	return nil
+}
+// CommitSave applies an already-finalized event (Sequence/Digest set by the
+// durable ledger) and the task snapshot to the in-memory state. It is meant to
+// be called after all persistence steps have succeeded so the in-memory view
+// only advances on success.
+func (s *MemoryStore) CommitSave(t *domain.Task, e domain.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.precheckSave(t.ID, t.Version); err != nil {
+		return err
+	}
+	if e.Sequence > s.seq {
+		s.seq = e.Sequence
+	}
+	s.events[t.ID] = append(s.events[t.ID], e)
+	s.tasks[t.ID] = cloneTask(t)
 	return nil
 }
 func (s *MemoryStore) Events(id string) ([]domain.Event, error) {
