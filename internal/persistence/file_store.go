@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"deepdeploy/internal/domain"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -42,7 +43,10 @@ func (f *FileStore) load() error {
 		}
 		_ = f.memory.Create(t)
 	}
-	events, _ := ReadEvents(filepath.Join(f.dir, "events.jsonl"))
+	events, err := ReadEvents(filepath.Join(f.dir, "events.jsonl"))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("recover events ledger: %w", err)
+	}
 	for _, ev := range events {
 		f.memory.events[ev.TaskID] = append(f.memory.events[ev.TaskID], ev)
 		if ev.Sequence > f.memory.seq {
@@ -97,14 +101,19 @@ func ReadEvents(path string) ([]domain.Event, error) {
 	defer file.Close()
 	var out []domain.Event
 	sc := bufio.NewScanner(file)
+	lineNo := 0
 	for sc.Scan() {
+		lineNo++
 		var e domain.Event
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			return out, err
+			return nil, fmt.Errorf("events ledger line %d: %w", lineNo, err)
 		}
 		out = append(out, e)
 	}
-	return out, sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 func (f *FileStore) SnapshotPath(id string) string { return filepath.Join(f.dir, id+".json") }
 func (f *FileStore) Remove(id string) error        { return os.Remove(f.SnapshotPath(id)) }
