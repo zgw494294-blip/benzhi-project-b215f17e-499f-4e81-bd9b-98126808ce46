@@ -82,6 +82,8 @@ func (s *Service) CreateTaskWithKey(id, mission, sea, window, owner, key string)
 func (s *Service) GetTask(id string) (*domain.Task, error) { return s.repo.Get(id) }
 func (s *Service) AddConfig(taskID string, c *domain.Config, expected int, key string) (*domain.Task, error) {
 	reqFingerprint := fingerprint(c)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if key != "" {
 		idemKey := "config:" + taskID + ":" + key
 		if v, ok := s.idem[idemKey]; ok {
@@ -91,8 +93,6 @@ func (s *Service) AddConfig(taskID string, c *domain.Config, expected int, key s
 			return v.(idemRecord).Task.Clone(), nil
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if c == nil || len(c.Sensors) == 0 {
 		return nil, domain.ErrInvalid
 	}
@@ -166,16 +166,17 @@ func (s *Service) Validate(taskID, configID string, expected int) (*domain.Task,
 	return t, risks, e
 }
 func (s *Service) AddEvidence(taskID, riskID, mitigation, evidence string, expected int, key string) (*domain.Task, error) {
+	digest := fingerprint(map[string]string{"riskID": riskID, "mitigation": mitigation, "evidence": evidence})
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if key != "" {
 		if v, ok := s.idem["evidence:"+taskID+":"+key]; ok {
-			if prior, ok := v.(idemRecord); ok && prior.Fingerprint != fingerprint(map[string]string{"riskID": riskID, "mitigation": mitigation, "evidence": evidence}) {
+			if prior, ok := v.(idemRecord); ok && prior.Fingerprint != digest {
 				return nil, domain.ErrConflict
 			}
 			return v.(idemRecord).Task.Clone(), nil
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	t, e := s.repo.Get(taskID)
 	if e != nil {
 		return nil, e
@@ -184,7 +185,6 @@ func (s *Service) AddEvidence(taskID, riskID, mitigation, evidence string, expec
 	if e != nil {
 		return nil, e
 	}
-	digest := fingerprint(map[string]string{"riskID": riskID, "mitigation": mitigation, "evidence": evidence})
 	e = s.repo.Save(t, domain.Event{Type: "evidence_submitted", TaskID: taskID, At: s.now(), Data: map[string]string{"riskID": riskID, "evidenceDigest": digest}})
 	if e == nil && key != "" {
 		s.idem["evidence:"+taskID+":"+key] = idemRecord{Fingerprint: digest, Task: t.Clone()}
