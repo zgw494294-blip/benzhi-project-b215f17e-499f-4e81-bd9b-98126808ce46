@@ -71,7 +71,7 @@ func (s *Service) CreateTaskWithKey(id, mission, sea, window, owner, key string)
 	if e = s.repo.Create(t); e != nil {
 		return nil, e
 	}
-	if e = s.repo.Save(t, domain.Event{Type: "task_created", TaskID: id, At: s.now(), Data: map[string]string{"owner": owner, "seaArea": sea, "deploymentWindow": window}}); e != nil {
+	if e = s.repo.Save(t, domain.Event{Type: "task_created", TaskID: id, At: s.now(), Data: map[string]string{"id": id, "missionName": mission, "seaArea": sea, "deploymentWindow": window, "owner": owner, "idempotencyKey": key, "createFingerprint": fp}}); e != nil {
 		return nil, e
 	}
 	if key != "" {
@@ -185,7 +185,7 @@ func (s *Service) AddEvidence(taskID, riskID, mitigation, evidence string, expec
 		return nil, e
 	}
 	digest := fingerprint(map[string]string{"riskID": riskID, "mitigation": mitigation, "evidence": evidence})
-	e = s.repo.Save(t, domain.Event{Type: "evidence_submitted", TaskID: taskID, At: s.now(), Data: map[string]string{"riskID": riskID, "evidenceDigest": digest}})
+	e = s.repo.Save(t, domain.Event{Type: "evidence_submitted", TaskID: taskID, At: s.now(), Data: map[string]string{"riskID": riskID, "mitigation": mitigation, "evidence": evidence, "evidenceDigest": digest}})
 	if e == nil && key != "" {
 		s.idem["evidence:"+taskID+":"+key] = idemRecord{Fingerprint: digest, Task: t.Clone()}
 	}
@@ -202,7 +202,7 @@ func (s *Service) Review(taskID, decision, reviewer, comment string, expected in
 	if e != nil {
 		return nil, e
 	}
-	e = s.repo.Save(t, domain.Event{Type: "reviewed", TaskID: taskID, At: s.now(), Data: decision})
+	e = s.repo.Save(t, domain.Event{Type: "reviewed", TaskID: taskID, At: s.now(), Data: map[string]string{"decision": decision, "reviewer": reviewer, "comment": comment}})
 	return t, e
 }
 func (s *Service) ReviewRisk(taskID, riskID, decision, reviewer, comment string, expected int) (*domain.Task, error) {

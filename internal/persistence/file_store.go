@@ -44,12 +44,12 @@ func (f *FileStore) load() error {
 		snapshotCount++
 		_ = f.memory.Create(t)
 	}
-	if snapshotCount == 0 {
-		return nil
-	}
+	// Load events from the ledger so they are available for queries and so the
+	// sequence counter is advanced past the highest persisted event.
+	eventsByTask := map[string][]domain.Event{}
 	if events, err := ReadEvents(filepath.Join(f.dir, "events.jsonl")); err == nil {
 		for _, ev := range events {
-			f.memory.events[ev.TaskID] = append(f.memory.events[ev.TaskID], ev)
+			eventsByTask[ev.TaskID] = append(eventsByTask[ev.TaskID], ev)
 			if ev.Sequence > f.memory.seq {
 				f.memory.seq = ev.Sequence
 			}
@@ -57,6 +57,21 @@ func (f *FileStore) load() error {
 				f.ledger.seq = ev.Sequence
 			}
 		}
+	}
+	// Replay events for tasks that have no snapshot so that the in-memory state
+	// is recovered from the durable ledger.
+	for taskID, evs := range eventsByTask {
+		if _, ok := f.memory.tasks[taskID]; ok {
+			// Snapshot already loaded; just attach the event history.
+			f.memory.events[taskID] = evs
+			continue
+		}
+		t, er := ReplayTask(evs)
+		if er != nil {
+			continue
+		}
+		_ = f.memory.Create(t)
+		f.memory.events[taskID] = evs
 	}
 	return nil
 }

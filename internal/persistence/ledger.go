@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,10 @@ func (l *Ledger) Append(e domain.Event) error {
 	defer l.mu.Unlock()
 	l.seq++
 	e.Sequence = l.seq
+	if e.SchemaVersion == 0 {
+		e.SchemaVersion = CurrentSchemaVersion
+	}
+	e.Digest = ""
 	raw, _ := json.Marshal(e)
 	sum := sha256.Sum256(raw)
 	e.Digest = hex.EncodeToString(sum[:])
@@ -52,14 +57,44 @@ func (l *Ledger) Verify() error {
 			return fmt.Errorf("invalid ledger line")
 		}
 		given := e.Digest
-		e.Digest = ""
-		raw, _ := json.Marshal(e)
-		sum := sha256.Sum256(raw)
-		if given != "" && given != hex.EncodeToString(sum[:]) {
+		if given == "" {
+			continue
+		}
+		// Recompute the digest from the exact line bytes with the digest field
+		// blanked out. Re-marshaling after an Unmarshal round-trip would reorder
+		// keys for struct-typed Data fields (they become map[string]any), so we
+		// must verify against the bytes that were actually written to the file.
+		redacted := blankDigest(line)
+		sum := sha256.Sum256(redacted)
+		if given != hex.EncodeToString(sum[:]) {
 			return fmt.Errorf("ledger digest mismatch")
 		}
 	}
 	return nil
+}
+
+// blankDigest replaces the "digest" field value in raw JSON bytes with an empty
+// string, preserving everything else (including key/field ordering) so that the
+// hash matches the bytes originally written by Append (which marshals with
+// Digest == ""). It operates on the raw bytes to avoid reordering map keys that
+// happens when re-marshaling after an Unmarshal round-trip.
+func blankDigest(raw []byte) []byte {
+	var e struct{ Digest string }
+	if json.Unmarshal(raw, &e) != nil {
+		return raw
+	}
+	if e.Digest == "" {
+		return raw
+	}
+	needle := []byte(`"digest":"` + e.Digest + `"`)
+	repl := []byte(`"digest":""`)
+	if bytes.Contains(raw, needle) {
+		return bytes.Replace(raw, needle, repl, 1)
+	}
+	// Fallback for pretty-printed JSON with spaces.
+	needle = []byte(`"digest": "` + e.Digest + `"`)
+	repl = []byte(`"digest": ""`)
+	return bytes.Replace(raw, needle, repl, 1)
 }
 func splitLines(b []byte) [][]byte {
 	var out [][]byte
