@@ -57,5 +57,18 @@ func (c *Config) Clone() *Config {
 	out.MountingParameters = copyFloatMap(c.MountingParameters)
 	out.EnvironmentLimits = copyFloatMap(c.EnvironmentLimits)
 	out.RiskIDs = append([]string(nil), c.RiskIDs...)
+	out.Diff = cloneDiff(c.Diff)
 	return &out
+}
+
+func cloneDiff(d *ConfigDiff) *ConfigDiff {
+	if d == nil {
+		return nil
+	}
+	cp := *d
+	cp.SensorsAdded = append([]string(nil), d.SensorsAdded...)
+	cp.SensorsRemoved = append([]string(nil), d.SensorsRemoved...)
+	cp.FirmwareChanged = append([]string(nil), d.FirmwareChanged...)
+	cp.ParametersChanged = append([]string(nil), d.ParametersChanged...)
+	return &cp
 }
