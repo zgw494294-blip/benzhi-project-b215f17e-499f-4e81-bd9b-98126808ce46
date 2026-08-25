@@ -229,7 +229,7 @@ func (s *Service) Permit(taskID, issuer string, expected int) (*domain.Permit, e
 	if e != nil {
 		return nil, e
 	}
-	ev, _ := s.repo.Events(taskID)
+	ev := s.auditEvents(taskID)
 	prior := make([]domain.Event, 0, len(ev))
 	for _, event := range ev {
 		if event.Type != "permit_issued" && event.Type != "permit_revoked" {
