@@ -40,6 +40,9 @@ func (f *FileStore) load() error {
 		if er != nil {
 			continue
 		}
+		if er = t.ValidateInvariants(); er != nil {
+			continue
+		}
 		_ = f.memory.Create(t)
 	}
 	if events, err := ReadEvents(filepath.Join(f.dir, "events.jsonl")); err == nil {
