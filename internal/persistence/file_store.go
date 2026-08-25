@@ -31,6 +31,7 @@ func (f *FileStore) load() error {
 	if err != nil {
 		return err
 	}
+	snapshotCount := 0
 	for _, e := range entries {
 		if filepath.Ext(e.Name()) != ".json" {
 			continue
@@ -40,7 +41,11 @@ func (f *FileStore) load() error {
 		if er != nil {
 			continue
 		}
+		snapshotCount++
 		_ = f.memory.Create(t)
+	}
+	if snapshotCount == 0 {
+		return nil
 	}
 	if events, err := ReadEvents(filepath.Join(f.dir, "events.jsonl")); err == nil {
 		for _, ev := range events {
