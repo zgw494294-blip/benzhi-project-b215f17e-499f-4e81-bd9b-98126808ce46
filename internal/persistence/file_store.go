@@ -42,15 +42,14 @@ func (f *FileStore) load() error {
 		}
 		_ = f.memory.Create(t)
 	}
-	if events, err := ReadEvents(filepath.Join(f.dir, "events.jsonl")); err == nil {
-		for _, ev := range events {
-			f.memory.events[ev.TaskID] = append(f.memory.events[ev.TaskID], ev)
-			if ev.Sequence > f.memory.seq {
-				f.memory.seq = ev.Sequence
-			}
-			if ev.Sequence > f.ledger.seq {
-				f.ledger.seq = ev.Sequence
-			}
+	events, _ := ReadEvents(filepath.Join(f.dir, "events.jsonl"))
+	for _, ev := range events {
+		f.memory.events[ev.TaskID] = append(f.memory.events[ev.TaskID], ev)
+		if ev.Sequence > f.memory.seq {
+			f.memory.seq = ev.Sequence
+		}
+		if ev.Sequence > f.ledger.seq {
+			f.ledger.seq = ev.Sequence
 		}
 	}
 	return nil
@@ -101,7 +100,7 @@ func ReadEvents(path string) ([]domain.Event, error) {
 	for sc.Scan() {
 		var e domain.Event
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			return nil, err
+			return out, err
 		}
 		out = append(out, e)
 	}
