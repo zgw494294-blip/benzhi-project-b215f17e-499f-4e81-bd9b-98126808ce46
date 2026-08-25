@@ -12,9 +12,11 @@ import (
 )
 
 type Ledger struct {
-	mu   sync.Mutex
-	path string
-	seq  int64
+	mu           sync.Mutex
+	path         string
+	seq          int64
+	verified     bool
+	verifiedSize int64
 }
 
 func NewLedger(path string) *Ledger { return &Ledger{path: path} }
@@ -33,15 +35,25 @@ func (l *Ledger) Append(e domain.Event) error {
 	}
 	defer f.Close()
 	_, err = f.Write(append(raw, '\n'))
+	if err == nil {
+		l.verified = false
+	}
 	return err
 }
 func (l *Ledger) Verify() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	b, err := os.ReadFile(l.path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if l.verified {
+		if info, statErr := os.Stat(l.path); statErr == nil && info.Size() == l.verifiedSize {
+			return nil
+		}
 	}
 	for _, line := range splitLines(b) {
 		if len(line) == 0 {
@@ -59,6 +71,8 @@ func (l *Ledger) Verify() error {
 			return fmt.Errorf("ledger digest mismatch")
 		}
 	}
+	l.verified = true
+	l.verifiedSize = int64(len(b))
 	return nil
 }
 func splitLines(b []byte) [][]byte {
