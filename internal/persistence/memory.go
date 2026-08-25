@@ -93,7 +93,9 @@ func (s *MemoryStore) Events(id string) ([]domain.Event, error) {
 	if _, ok := s.tasks[id]; !ok {
 		return nil, domain.ErrNotFound
 	}
-	return append([]domain.Event(nil), s.events[id]...), nil
+	// BUG(seed): 将仓储拥有的事件切片直接暴露给调用方。应用层会排序并返回
+	// 这些记录，调用方也就能修改嵌套 Data map，进而污染后续审计读取。
+	return s.events[id], nil
 }
 func cloneTask(t *domain.Task) *domain.Task {
 	b, _ := json.Marshal(t)
