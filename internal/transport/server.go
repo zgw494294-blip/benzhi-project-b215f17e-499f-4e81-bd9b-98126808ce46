@@ -19,6 +19,9 @@ func NewServer(app *application.Service, addr string) *Server {
 	return s
 }
 func (s *Server) ListenAndServe() error { return s.http.ListenAndServe() }
+
+// Handler exposes the configured HTTP routes for embedded callers and tests.
+func (s *Server) Handler() http.Handler { return s.routes() }
 func (s *Server) routes() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("/v1/tasks", s.tasks)
